@@ -1,4 +1,4 @@
-from networks import get_model
+from .networks import get_model
 import torch
 import torch.nn.functional as F
 
@@ -6,7 +6,7 @@ class FaceParsing(torch.nn.Module):
     def __init__(self) -> None:
         super().__init__()
         
-        self.model = get_model('FaceParseNet50', pretrained=False).cuda()
+        self.model = get_model('FaceParseNet50', pretrained=False)
         self.model.load_state_dict(torch.load('FaceParsing/models/FaceParseNet50/38_G.pth', map_location='cpu'))
         self.model.eval()
         
@@ -17,9 +17,8 @@ class FaceParsing(torch.nn.Module):
         inputs = F.interpolate(input=outputs, size=(imsize, imsize), mode='bilinear', align_corners=True)
 
         pred_batch = torch.argmax(inputs, dim=1)
-        label_batch = [p.cpu().numpy() for p in pred_batch]
         
-        return label_batch
+        return pred_batch
     
     
 if __name__ == '__main__':
@@ -27,7 +26,7 @@ if __name__ == '__main__':
     from torchvision import transforms
     import cv2
     
-    input = Image.open('../17082.png')
+    input = Image.open('./17082.png')
     
     transform = transforms.Compose([
         transforms.Resize((512, 512)),
@@ -40,6 +39,7 @@ if __name__ == '__main__':
     
     model = FaceParsing()
     out = model(input)
+    # print(out)
     
-    cv2.imwrite('2.png', out[0])
+    cv2.imwrite('2.png', out[0].cpu().numpy())
     

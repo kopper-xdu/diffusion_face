@@ -250,36 +250,39 @@ class DDIMSampler(object):
         x_target = kwargs['x_target']
         classifier = kwargs['classifier']
         classifier_scale = kwargs['classifier_scale']
-        grad = self.get_classifier_guidance(pred_x0, x_target, classifier)
+        grad = self.get_classifier_guidance(pred_x0, x_target, classifier, classifier_scale)
 
         # direction pointing to x_t
         dir_xt = (1. - a_prev - sigma_t**2).sqrt() * e_t
         noise = sigma_t * noise_like(x.shape, device, repeat_noise) * temperature
         if noise_dropout > 0.:
             noise = torch.nn.functional.dropout(noise, p=noise_dropout)
-        x_prev = a_prev.sqrt() * pred_x0 + dir_xt + noise + sigma_t * classifier_scale * grad.float()
+        x_prev = a_prev.sqrt() * pred_x0 + dir_xt + noise + sigma_t * grad.float()
         return x_prev, pred_x0
     
-    @torch.no_grad()
-    def get_classifier_guidance(self, x_0, x_target, classifier):
+    def get_classifier_guidance(self, x_0, x_target, classifier, classifier_scale):
         from torch.nn import functional as F
         with torch.enable_grad():
             B = x_0.shape[0]
-            x_in = x_0.detach()
+            x_in = x_0.detach().requires_grad_(True)
             
             # import pdb
             # pdb.set_trace()
-            img = self.model.decode_first_stage(x_in)
+            classifier = classifier.to(1)
+            self.model.first_stage_model.post_quant_conv.to(1)
+            self.model.first_stage_model.decoder.to(1)
+            img = self.model.decode_first_stage(x_in.to(1))
             reshape = torch.nn.AdaptiveAvgPool2d((112, 112))
             feature1 = classifier(reshape(img)).reshape(B, -1)
-            feature2 = classifier(reshape(x_target.unsqueeze(0))).reshape(1, -1)
+            feature2 = classifier(reshape(x_target.unsqueeze(0).to(1))).reshape(1, -1)
             feature2 = feature2.repeat(B, 1)
             score = (1 + F.cosine_similarity(feature1, feature2)) / 2
             
             print(score.sum() / B)
             # pdb.set_trace()
-            # return torch.autograd.grad(score.sum() / B, x_in)[0]
-            return torch.tensor(0).cuda()
+            x = torch.autograd.grad(score.sum() / B, x_in)[0] * classifier_scale
+            # print(x)
+            return x
 
     @torch.no_grad()
     def encode(self, x0, c, t_enc, use_original_steps=False, return_intermediates=None,

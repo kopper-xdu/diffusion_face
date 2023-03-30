@@ -1,4 +1,6 @@
 __pycache__/
+data/
+pretrained_model/
 *.pth
 *.png
 *.jpg

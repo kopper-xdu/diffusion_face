@@ -15,7 +15,7 @@ from FaceParsing.interface import FaceParsing
 
 torch.set_grad_enabled(False)
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "0, 3"
+os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
 
 def get_classifier():

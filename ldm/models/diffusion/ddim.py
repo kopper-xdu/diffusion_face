@@ -264,25 +264,28 @@ class DDIMSampler(object):
         from torch.nn import functional as F
         with torch.enable_grad():
             B = x_0.shape[0]
-            x_in = x_0.detach().requires_grad_(True)
+            score = 0
+            i = 0
+            for k, v in classifier.items():
+                x_in = x_0.detach().requires_grad_(True)
+                
+                self.model.first_stage_model.post_quant_conv.to(1)
+                self.model.first_stage_model.decoder.to(1)
+                img = self.model.decode_first_stage(x_in.to(1)).to(0)
+                x_target = x_target.to(0)
+                v = v.to(0)
+                # img = self.model.decode_first_stage(x_in)
+                
+                resize = torch.nn.AdaptiveAvgPool2d((112, 112)) if k != 'FaceNet' \
+                    else torch.nn.AdaptiveAvgPool2d((160, 160))
+                feature1 = v(resize(img)).reshape(B, -1)
+                feature2 = v(resize(x_target)).reshape(B, -1)
             
-            # import pdb
-            # pdb.set_trace()
-            classifier = classifier.to(1)
-            self.model.first_stage_model.post_quant_conv.to(1)
-            self.model.first_stage_model.decoder.to(1)
-            img = self.model.decode_first_stage(x_in.to(1))
-            reshape = torch.nn.AdaptiveAvgPool2d((112, 112))
-            feature1 = classifier(reshape(img)).reshape(B, -1)
-            feature2 = classifier(reshape(x_target.unsqueeze(0).to(1))).reshape(1, -1)
-            feature2 = feature2.repeat(B, 1)
-            score = (1 + F.cosine_similarity(feature1, feature2)) / 2
+                score += F.cosine_similarity(feature1, feature2).sum() / B
+                i += 1
             
-            print(score.sum() / B)
-            # pdb.set_trace()
-            x = torch.autograd.grad(score.sum() / B, x_in)[0] * classifier_scale
-            # print(x)
-            return x
+            print(score.item() / i)
+            return torch.autograd.grad(score / i, x_in)[0] * classifier_scale
 
     @torch.no_grad()
     def encode(self, x0, c, t_enc, use_original_steps=False, return_intermediates=None,

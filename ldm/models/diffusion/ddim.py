@@ -266,25 +266,27 @@ class DDIMSampler(object):
             B = x_0.shape[0]
             score = 0
             i = 0
+            x_in = x_0.detach().requires_grad_(True)
+            img = self.model.decode_first_stage(x_in)
             for k, v in classifier.items():
-                x_in = x_0.detach().requires_grad_(True)
                 
-                self.model.first_stage_model.post_quant_conv.to(1)
-                self.model.first_stage_model.decoder.to(1)
-                img = self.model.decode_first_stage(x_in.to(1)).to(0)
-                x_target = x_target.to(0)
-                v = v.to(0)
-                # img = self.model.decode_first_stage(x_in)
-                
+                # self.model.first_stage_model.post_quant_conv.to(1)
+                # self.model.first_stage_model.decoder.to(1)
+                # img = self.model.decode_first_stage(x_in.to(1)).to(0)
+                # x_target = x_target.to(0)
+                # v = v.to(0)
+                # from time import sleep
+                # sleep(10000)
                 resize = torch.nn.AdaptiveAvgPool2d((112, 112)) if k != 'FaceNet' \
                     else torch.nn.AdaptiveAvgPool2d((160, 160))
+                # with torch.autocast()
                 feature1 = v(resize(img)).reshape(B, -1)
                 feature2 = v(resize(x_target)).reshape(B, -1)
             
                 score += F.cosine_similarity(feature1, feature2).sum() / B
                 i += 1
             
-            print(score.item() / i)
+            # print(score.item() / i)
             return torch.autograd.grad(score / i, x_in)[0] * classifier_scale
 
     @torch.no_grad()

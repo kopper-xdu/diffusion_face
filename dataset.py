@@ -8,7 +8,7 @@ class base_dataset(Dataset):
         super().__init__()
         
         self.path = path
-        self.img_names = os.listdir(path)
+        self.img_names = sorted(os.listdir(path))
         self.transform = transform
         
     def __len__(self):

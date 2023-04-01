@@ -1,6 +1,7 @@
 import torch
 from torch import nn
 import numpy as np
+import random
 from omegaconf import OmegaConf
 from ldm.models.diffusion.ddim import DDIMSampler
 from ldm.util import instantiate_from_config
@@ -11,8 +12,11 @@ from FaceParsing.interface import FaceParsing
 from dataset import base_dataset
 from torchvision import transforms
 import torch.nn.functional as F
+from torchvision.utils import save_image
+from torch.utils.data import Subset
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "0, 3"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+
 
 
 def get_model(name):
@@ -35,7 +39,7 @@ def get_model(name):
     for param in model.parameters():
         param.requires_grad = False
         
-    return model
+    return model.cuda()
 
 
 def initialize_model(config, ckpt):
@@ -53,27 +57,33 @@ def initialize_model(config, ckpt):
 
     return sampler
 
+def setup_seed(seed):
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+
 
 def main():
     seed = 0
-    num_samples = 1
     h = 512
     w = 512
     txt = ''
     ddim_steps = 45
     scale = 0
-    classifier_scale = 100
-    batch_size = 1
+    classifier_scale = 300
+    batch_size = 2
     num_workers = 0
     
-    
+    setup_seed(seed)
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     
     transform = transforms.Compose([transforms.Resize((512, 512)),
                                     transforms.ToTensor(),
                                     transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])])
     dataset = base_dataset(path='./data', transform=transform)
-    dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
+    dataset = Subset(dataset, [x for x in range(50)])
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
     
     # x_target = Image.open('17082.png').convert('RGB')
     # trans = transforms.Compose([transforms.Resize((112, 112)),
@@ -87,36 +97,60 @@ def main():
     # classifier = get_model('IRSE50')
 
     prng = np.random.RandomState(seed)
-    start_code = prng.randn(num_samples, 4, h // 8, w // 8)
+    start_code = prng.randn(batch_size, 4, h // 8, w // 8)
     start_code = torch.from_numpy(start_code).to(device=device, dtype=torch.float32)
 
     # with torch.no_grad(), \
     #         torch.autocast("cuda"):
-    attack_model_names = ['IR152', 'IRSE50', 'FaceNet', 'MobileFace']
+    # attack_model_names = ['IR152', 'IRSE50', 'FaceNet', 'MobileFace']
+    attack_model_names = ['IR152']
     attack_model_dict = {'IR152': get_model('IR152'), 'IRSE50': get_model('IRSE50'), 
                          'FaceNet': get_model('FaceNet'), 'MobileFace': get_model('MobileFace')}
     # attack_model_resize_dict = {'IR152': 112, 'IRSE50': 112, 'FaceNet': 160, 'MobileFace': 112}
-    cos_sim_scores_dict = {'IR152': [], 'IRSE50': [], 'FaceNet': [], 'MobileFace': []}
+    # cos_sim_scores_dict = {'IR152': [], 'IRSE50': [], 'FaceNet': [], 'MobileFace': []}
+    cos_sim_scores_dict = {'IR152': []}
     
     for attack_model_name in attack_model_names:
+        attack_model = attack_model_dict[attack_model_name]
         classifier = {k: v for k, v in attack_model_dict.items() if k != attack_model_name}
         resize = nn.AdaptiveAvgPool2d((112, 112)) if attack_model_name != 'FaceNet' else nn.AdaptiveAvgPool2d((160, 160))
-        with torch.no_grad(), torch.autocast("cuda"):
-            for image, tgt_image in dataloader:
-                # tgt_image = tgt_image.to(device)
+        with torch.no_grad():
+            for i, (image, tgt_image) in enumerate(dataloader):
+                tgt_image = tgt_image.to(device)
                 B = image.shape[0]
                 
-                face_parsing = FaceParsing() #.to(device)
+                face_parsing = FaceParsing()
                 pred = face_parsing(image)
-                mask_hair = (pred == 13).reshape(B, 1, 512, 512)
-                mask_bg = (pred == 0).reshape(B, 1, 512, 512)
-                mask = (mask_bg | mask_hair).float()
+
+# label_list = ['skin', 'nose', 'eye_g', 'l_eye', 'r_eye', 'l_brow', 'r_brow', 
+# 'l_ear', 'r_ear', 'mouth', 'u_lip', 'l_lip', 'hair', 'hat', 'ear_r', 'neck_l', 'neck', 'cloth']
+                def get_mask(number):
+                    return pred == number
+                
+                masks = [1, 2, 3, 4, 5, 6, 7, 10, 11, 12]
+                # skin = get_mask(1)
+                # nose = get_mask(2)
+                # eye_gla = get_mask(3)
+                # l_eye = get_mask(4)
+                # r_eye = get_mask(5)
+                # l_brow = get_mask(6)
+                # r_brow = get_mask(7)
+                # mouth = get_mask(10)
+                # u_lip = get_mask(11)
+                # l_lip = get_mask(12)
+                mask = None
+                for x in masks:
+                    if mask is not None:
+                        mask |= get_mask(x)
+                    else:
+                        mask = get_mask(x)
+                mask = (mask == 0).float().reshape(B, 1, h, w)
 
                 masked_image = image * (mask < 0.5)
 
                 batch = {
                     "image": image.to(device),
-                    "txt": num_samples * [txt],
+                    "txt": batch_size * [txt],
                     "mask": mask.to(device),
                     "masked_image": masked_image.to(device),
                 }
@@ -126,7 +160,7 @@ def main():
                 for ck in model.concat_keys:
                     cc = batch[ck].float()
                     if ck != model.masked_image_key:
-                        bchw = [num_samples, 4, h // 8, w // 8]
+                        bchw = [batch_size, 4, h // 8, w // 8]
                         cc = torch.nn.functional.interpolate(cc, size=bchw[-2:])
                     else:
                         cc = model.get_first_stage_encoding(model.encode_first_stage(cc))
@@ -137,14 +171,14 @@ def main():
                 cond = {"c_concat": [c_cat], "c_crossattn": [c]}
 
                 # uncond cond
-                uc_cross = model.get_unconditional_conditioning(num_samples, "")
+                uc_cross = model.get_unconditional_conditioning(batch_size, "")
                 uc_full = {"c_concat": [c_cat], "c_crossattn": [uc_cross]}
 
                 shape = [model.channels, h // 8, w // 8]
                 
                 samples_cfg, intermediates = sampler.sample(
                     ddim_steps,
-                    num_samples,
+                    batch_size,
                     shape,
                     cond,
                     verbose=False,
@@ -152,23 +186,36 @@ def main():
                     unconditional_guidance_scale=scale,
                     unconditional_conditioning=uc_full,
                     x_T=start_code,
+                    log_every_t=10,
                     classifier=classifier,
                     classifier_scale=classifier_scale,
                     x_target=tgt_image
                 )
                 
-                model.first_stage_model.post_quant_conv.to(0)
-                model.first_stage_model.decoder.to(0)
+                # model.first_stage_model.post_quant_conv.to(0)
+                # model.first_stage_model.decoder.to(0)
                 x_samples_ddim = model.decode_first_stage(samples_cfg)
                 result = torch.clamp(x_samples_ddim, min=-1, max=1)
+                # x_inter = torch.clamp(model.decode_first_stage(intermediates['x_inter'][-2]), min=-1, max=1)
+
+                save_image((result + 1) / 2, f'res/{i}.png')
+                save_image((masked_image + 1) / 2, f'res/{i}_m.png')
+
+                # save_image((x_inter + 1) / 2, f'res/{i}_inter.png')
                 
-                attack_model = attack_model_dict[attack_model_name]
-                feature1 = attack_model(resize(result).cpu()).reshape(B, -1)
-                feature2 = attack_model(resize(tgt_image).cpu()).reshape(B, -1)
+                # attack_model = attack_model_dict[attack_model_name]
+                feature1 = attack_model(resize(result)).reshape(B, -1)
+                feature2 = attack_model(resize(tgt_image)).reshape(B, -1)
                 
                 score = F.cosine_similarity(feature1, feature2)
                 print(score)
                 cos_sim_scores_dict[attack_model_name] += score.tolist()
+
+                
+                # feature3 = attack_model(resize(x_inter)).reshape(B, -1)
+                # score = F.cosine_similarity(feature3, feature2)
+                # print(score)
+
     
     asr_calculation(cos_sim_scores_dict)
 

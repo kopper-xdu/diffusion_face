@@ -1,4 +1,5 @@
 import torch
+from torch import nn
 import torch.nn.functional as F
 
 from .attack import Attack
@@ -33,21 +34,29 @@ class FGSM(Attack):
 
 
     def forward(self, images, tgt_images=None):
+        B = images.shape[0]
+        
         images = images.clone().detach()
-        if tgt_images:
-            tgt_image = tgt_image.clone().detach()
-        
         images.requires_grad = True
-        fea1 = self.model(images)
         
-        if tgt_images:
-            fea2 = self.model(tgt_images)
-            loss = F.cosine_similarity(fea1, fea2)
-        else:
-            loss = -F.cosine_similarity(fea1, fea1.clone().detach())
+        if tgt_images is not None:
+            tgt_images = tgt_images.clone().detach()
+        
+        loss = 0
+        for name, model in self.model.items():
+            model.eval()
+            resize = nn.AdaptiveAvgPool2d((112, 112)) if name != 'FaceNet' else nn.AdaptiveAvgPool2d((160, 160))
+
+            fea1 = model(resize(images * 2 - 1)).reshape(B, -1)
+            
+            if tgt_images is not None:
+                fea2 = model(resize(tgt_images * 2 - 1)).reshape(B, -1)
+                loss += F.cosine_similarity(fea1, fea2).sum() / B
+            else:
+                loss += -F.cosine_similarity(fea1, fea1.clone().detach()).sum() / B
 
         # Update adversarial images
-        grad = torch.autograd.grad(loss, images,
+        grad = torch.autograd.grad(loss / len(self.model), images,
                                    retain_graph=False, create_graph=False)[0]
 
         adv_images = images + self.eps * grad.sign()

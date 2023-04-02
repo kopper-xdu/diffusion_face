@@ -8,7 +8,7 @@ class FaceParsing(torch.nn.Module):
         super().__init__()
         
         self.model = get_model('FaceParseNet50', pretrained=False)
-        self.model.load_state_dict(torch.load('FaceParsing/models/38_G.pth', map_location='cpu'))
+        self.model.load_state_dict(torch.load('FaceParsing/38_G.pth', map_location='cpu'))
         self.model.eval()
         
     def forward(self, x):

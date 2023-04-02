@@ -57,7 +57,7 @@ def main():
                                     transforms.ToTensor(),
                                     transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])])
     dataset = base_dataset(path='./data', transform=transform)
-    dataset = Subset(dataset, [x for x in range(50)])
+    # dataset = Subset(dataset, [x for x in range(50)])
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
     attack_model_names = ['IR152']
@@ -74,7 +74,7 @@ def main():
             tgt_image = tgt_image.to(device)
             image = image.to(device)
             B = image.shape[0]
-                
+            
             feature1 = attack_model(resize(image)).reshape(B, -1)
             feature2 = attack_model(resize(tgt_image)).reshape(B, -1)
                 

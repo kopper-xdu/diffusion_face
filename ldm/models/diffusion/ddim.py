@@ -267,6 +267,7 @@ class DDIMSampler(object):
             score = 0
             i = 0
             x_in = x_0.detach().requires_grad_(True)
+            
             img = self.model.decode_first_stage(x_in)
             for k, v in classifier.items():
                 
@@ -275,8 +276,7 @@ class DDIMSampler(object):
                 # img = self.model.decode_first_stage(x_in.to(1)).to(0)
                 # x_target = x_target.to(0)
                 # v = v.to(0)
-                # from time import sleep
-                # sleep(10000)
+
                 resize = torch.nn.AdaptiveAvgPool2d((112, 112)) if k != 'FaceNet' \
                     else torch.nn.AdaptiveAvgPool2d((160, 160))
                 # with torch.autocast()

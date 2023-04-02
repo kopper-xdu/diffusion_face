@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-from attack import Attack
+from .attack import Attack
 
 
 class PGD(Attack):
@@ -40,30 +40,38 @@ class PGD(Attack):
         # self.supported_mode = ['default', 'targeted']
 
     def forward(self, images, tgt_images=None):
+        B = images.shape[0]
         images = images.clone().detach()
-        if tgt_images:
+
+        if tgt_images is not None:
             tgt_images = tgt_images.clone().detach()
 
         adv_images = images.clone().detach()
 
         if self.random_start:
             # Starting at a uniformly random point
-            adv_images = adv_images + torch.empty_like(adv_images).uniform_(-self.eps, self.eps)
+            adv_images += torch.empty_like(adv_images).uniform_(-self.eps, self.eps)
             adv_images = torch.clamp(adv_images, min=0, max=1).detach()
 
+        
         for _ in range(self.steps):
             adv_images.requires_grad = True
-            fea1 = self.model(adv_images)
+            cost = 0
+            for name, model in self.model.items():
+                model.eval()
+                resize = nn.AdaptiveAvgPool2d((112, 112)) if name != 'FaceNet' else nn.AdaptiveAvgPool2d((160, 160))
+                
+                fea1 = model(resize(adv_images * 2 - 1))
         
-            if tgt_images:
-                fea2 = self.model(tgt_images)
-                cost = F.cosine_similarity(fea1, fea2)
-            else:
-                cost = -F.cosine_similarity(fea1, fea1.clone().detach())
+                if tgt_images is not None:
+                    fea2 = model(resize(tgt_images * 2 - 1))
+                    cost += F.cosine_similarity(fea1, fea2).sum() / B
+                else:
+                    cost += -F.cosine_similarity(fea1, fea1.clone().detach()).sum() / B
 
-            # Update adversarial images
-            grad = torch.autograd.grad(cost, adv_images,
-                                       retain_graph=False, create_graph=False)[0]
+                # Update adversarial images
+            grad = torch.autograd.grad(cost / len(self.model), adv_images,
+                                        retain_graph=False, create_graph=False)[0]
 
             adv_images = adv_images.detach() + self.alpha * grad.sign()
             delta = torch.clamp(adv_images - images, min=-self.eps, max=self.eps)

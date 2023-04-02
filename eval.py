@@ -14,6 +14,7 @@ from torchvision import transforms
 import torch.nn.functional as F
 from torchvision.utils import save_image
 from torch.utils.data import Subset
+import argparse
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
@@ -39,7 +40,7 @@ def get_model(name):
     for param in model.parameters():
         param.requires_grad = False
         
-    return model.cuda()
+    return model
 
 
 def initialize_model(config, ckpt):
@@ -64,7 +65,7 @@ def setup_seed(seed):
     random.seed(seed)
 
 
-def main():
+def main(args):
     seed = 0
     h = 512
     w = 512
@@ -72,7 +73,7 @@ def main():
     ddim_steps = 45
     scale = 0
     classifier_scale = 300
-    batch_size = 2
+    batch_size = 1
     num_workers = 0
     
     setup_seed(seed)
@@ -81,34 +82,27 @@ def main():
     transform = transforms.Compose([transforms.Resize((512, 512)),
                                     transforms.ToTensor(),
                                     transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])])
-    dataset = base_dataset(path='./data', transform=transform)
+    dataset = base_dataset(path='./celeba-hq-sample/src', transform=transform)
     dataset = Subset(dataset, [x for x in range(50)])
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
-    
-    # x_target = Image.open('17082.png').convert('RGB')
-    # trans = transforms.Compose([transforms.Resize((112, 112)),
-    #                             transforms.ToTensor(),
-    #                             transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])])
-    # x_target = trans(x_target)
     
     sampler = initialize_model('configs/stable-diffusion/v2-inpainting-inference.yaml', 
                                'pretrained_model/512-inpainting-ema.ckpt')
     model = sampler.model
-    # classifier = get_model('IRSE50')
 
     prng = np.random.RandomState(seed)
     start_code = prng.randn(batch_size, 4, h // 8, w // 8)
     start_code = torch.from_numpy(start_code).to(device=device, dtype=torch.float32)
 
-    # with torch.no_grad(), \
-    #         torch.autocast("cuda"):
     # attack_model_names = ['IR152', 'IRSE50', 'FaceNet', 'MobileFace']
-    attack_model_names = ['IR152']
+    # attack_model_names = ['IRSE50']
+    attack_model_names = [args.model]
     attack_model_dict = {'IR152': get_model('IR152'), 'IRSE50': get_model('IRSE50'), 
                          'FaceNet': get_model('FaceNet'), 'MobileFace': get_model('MobileFace')}
     # attack_model_resize_dict = {'IR152': 112, 'IRSE50': 112, 'FaceNet': 160, 'MobileFace': 112}
     # cos_sim_scores_dict = {'IR152': [], 'IRSE50': [], 'FaceNet': [], 'MobileFace': []}
-    cos_sim_scores_dict = {'IR152': []}
+    # cos_sim_scores_dict = {'IRSE50': []}
+    cos_sim_scores_dict = {args.model: []}
     
     for attack_model_name in attack_model_names:
         attack_model = attack_model_dict[attack_model_name]
@@ -198,6 +192,7 @@ def main():
                 result = torch.clamp(x_samples_ddim, min=-1, max=1)
                 # x_inter = torch.clamp(model.decode_first_stage(intermediates['x_inter'][-2]), min=-1, max=1)
 
+                os.makedirs('res', exist_ok=True)
                 save_image((result + 1) / 2, f'res/{i}.png')
                 save_image((masked_image + 1) / 2, f'res/{i}_m.png')
 
@@ -241,5 +236,11 @@ def asr_calculation(cos_sim_scores_dict):
         print(key, " attack success(far@0.1) rate: ", success01 / total)
         print(key, " attack success(far@0.01) rate: ", success001 / total)
         print(key, " attack success(far@0.001) rate: ", success0001 / total)
+ 
+ 
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--model', type=str, default='IR152')
+    args = parser.parse_args()   
     
-main()
+    main(args)

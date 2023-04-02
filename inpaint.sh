@@ -1,1 +1,1 @@
-python inpainting.py configs/stable-diffusion/v2-inpainting-inference.yaml ./512-inpainting-ema.ckpt
+python inpainting.py configs/stable-diffusion/v2-inpainting-inference.yaml pretrained_model/512-inpainting-ema.ckpt

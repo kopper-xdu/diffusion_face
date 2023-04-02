@@ -1,0 +1,1 @@
+./512-inpainting-ema.ckpt

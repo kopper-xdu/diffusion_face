@@ -56,6 +56,7 @@ class PGD(Attack):
         
         for _ in range(self.steps):
             adv_images.requires_grad = True
+            
             cost = 0
             for name, model in self.model.items():
                 model.eval()

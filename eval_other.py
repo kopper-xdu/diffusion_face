@@ -59,18 +59,18 @@ def main(args):
     transform = transforms.Compose([transforms.Resize((160, 160)),
                                     transforms.ToTensor()])
     
-    dataset = base_dataset(path='./celeba-hq_sample', transform=transform)
+    dataset = base_dataset(path='./celeba-hq-sample/src', transform=transform)
     # dataset = base_dataset(path='data', transform=transform)
-    dataset = Subset(dataset, [x for x in range(50)])
+    # dataset = Subset(dataset, [x for x in range(50)])
     
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
 
-    # attack_model_names = ['IR152', 'IRSE50', 'FaceNet', 'MobileFace']
-    attack_model_names = ['IR152']
-    attack_model_dict = {'IR152': get_model('IR152'), 
+    attack_model_names = ['IR152', 'IRSE50', 'FaceNet', 'MobileFace']
+    # attack_model_names = ['IR152']
+    attack_model_dict = {'IR152': get_model('IR152'), 'IRSE50': get_model('IRSE50'),
                          'FaceNet': get_model('FaceNet'), 'MobileFace': get_model('MobileFace')}
-    # cos_sim_scores_dict = {'IR152': [], 'IRSE50': [], 'FaceNet': [], 'MobileFace': []}
-    cos_sim_scores_dict = {'IR152': []}
+    cos_sim_scores_dict = {'IR152': [], 'IRSE50': [], 'FaceNet': [], 'MobileFace': []}
+    # cos_sim_scores_dict = {'IR152': []}
     
     for attack_model_name in attack_model_names:
         resize = nn.AdaptiveAvgPool2d((112, 112)) if attack_model_name != 'FaceNet' else nn.AdaptiveAvgPool2d((160, 160))

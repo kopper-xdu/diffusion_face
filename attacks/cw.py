@@ -47,8 +47,10 @@ class CW(Attack):
         # self.supported_mode = ['default', 'targeted']
 
     def forward(self, images, tgt_images=None):
+        B = images.shape[0]
         images = images.clone().detach()
-        if tgt_images:
+        
+        if tgt_images is not None:
             tgt_images = tgt_images.clone().detach()
 
         # w = torch.zeros_like(images).detach() # Requires 2x times
@@ -68,21 +70,26 @@ class CW(Attack):
         for step in range(self.steps):
             # Get adversarial images
             adv_images = self.tanh_space(w)
-
+            
             # Calculate loss
             current_L2 = MSELoss(Flatten(adv_images),
                                  Flatten(images)).sum(dim=1)
             L2_loss = current_L2.sum()
 
-            fea1 = self.model(adv_images)
-            if tgt_images is not None:
-                # f_loss = self.f(outputs, target_labels).sum()
-                fea2 = self.model(tgt_images)
-                f_loss = -F.cosine_similarity(fea1, fea2)
-            else:
-                f_loss = F.cosine_similarity(fea1, fea1.clone().detach())
+            f_loss = 0
+            for name, model in self.model.items():
+                model.eval()
+                resize = nn.AdaptiveAvgPool2d((112, 112)) if name != 'FaceNet' else nn.AdaptiveAvgPool2d((160, 160))
 
-            cost = L2_loss + self.c * f_loss
+                fea1 = model(resize(adv_images * 2 - 1))
+            
+                if tgt_images is not None:
+                    fea2 = model(resize(tgt_images * 2 - 1))
+                    f_loss += -F.cosine_similarity(fea1, fea2).sum() / B
+                else:
+                    f_loss += F.cosine_similarity(fea1, fea1.clone().detach()).sum() / B
+
+            cost = L2_loss + self.c * f_loss / len(self.model)
 
             optimizer.zero_grad()
             cost.backward()
@@ -92,7 +99,7 @@ class CW(Attack):
             
             # Filter out images that get either correct predictions or non-decreasing loss, 
             # i.e., only images that are both misclassified and loss-decreasing are left 
-            mask = best_L2 > current_L2.detach()
+            mask = (best_L2 > current_L2.detach()).float()
             best_L2 = mask*current_L2.detach() + (1-mask)*best_L2
 
             mask = mask.reshape([-1]+[1]*(dim-1))

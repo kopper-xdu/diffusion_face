@@ -31,7 +31,7 @@ class MIFGSM(Attack):
 
     """
 
-    def __init__(self, model, eps=16/255, alpha=0.8/255, steps=10, decay=1.0):
+    def __init__(self, model, eps=8/255, alpha=2/255, steps=10, decay=1.0):
         super().__init__(model)
         self.eps = eps
         self.steps = steps
@@ -40,8 +40,11 @@ class MIFGSM(Attack):
         # self.supported_mode = ['default', 'targeted']
 
     def forward(self, images, tgt_images=None):
+        B = images.shape[0]
         images = images.clone().detach()
-        labels = labels.clone().detach()
+        
+        if tgt_images is not None:
+            tgt_images = tgt_images.clone().detach()
 
         momentum = torch.zeros_like(images).detach().to(self.device)
 
@@ -49,17 +52,22 @@ class MIFGSM(Attack):
 
         for _ in range(self.steps):
             adv_images.requires_grad = True
+            
+            cost = 0
+            for name, model in self.model.items():
+                model.eval()
+                resize = nn.AdaptiveAvgPool2d((112, 112)) if name != 'FaceNet' else nn.AdaptiveAvgPool2d((160, 160))
 
-            fea1 = self.model(images)
-        
-            if tgt_images:
-                fea2 = self.model(tgt_images)
-                cost = F.cosine_similarity(fea1, fea2)
-            else:
-                cost = -F.cosine_similarity(fea1, fea1.clone().detach())
+                fea1 = model(resize(adv_images * 2 - 1))
+            
+                if tgt_images is not None:
+                    fea2 = model(resize(tgt_images * 2 - 1))
+                    cost += F.cosine_similarity(fea1, fea2).sum() / B
+                else:
+                    cost += -F.cosine_similarity(fea1, fea1.clone().detach()).sum() / B
 
             # Update adversarial images
-            grad = torch.autograd.grad(cost, adv_images,
+            grad = torch.autograd.grad(cost / len(self.model), adv_images,
                                        retain_graph=False, create_graph=False)[0]
 
             grad = grad / torch.mean(torch.abs(grad), dim=(1,2,3), keepdim=True)

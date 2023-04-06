@@ -39,7 +39,7 @@ def get_model(name):
     for param in model.parameters():
         param.requires_grad = False
         
-    return model
+    return model.cuda()
 
 
 def initialize_model(config, ckpt):
@@ -81,8 +81,8 @@ def main(args):
     transform = transforms.Compose([transforms.Resize((512, 512)),
                                     transforms.ToTensor(),
                                     transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])])
-    dataset = base_dataset(path='./celeba-hq-sample/src', transform=transform)
-    dataset = Subset(dataset, [x for x in range(2)])
+    dataset = base_dataset(path='./celeba-hq-sample', transform=transform)
+    dataset = Subset(dataset, [x for x in range(4)])
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
     
     sampler = initialize_model('configs/stable-diffusion/v2-inpainting-inference.yaml', 
@@ -139,6 +139,8 @@ def main(args):
                         mask = get_mask(x)
                 mask = (mask == 0).float().reshape(B, 1, h, w)
 
+                # mask = torch.zeros(mask.shape)
+
                 masked_image = image * (mask < 0.5)
 
                 batch = {
@@ -179,36 +181,36 @@ def main(args):
                     unconditional_guidance_scale=scale,
                     unconditional_conditioning=uc_full,
                     x_T=start_code,
-                    log_every_t=10,
+                    log_every_t=1,
                     classifier=classifier,
                     classifier_scale=classifier_scale,
                     x_target=tgt_image
                 )
                 
-                # model.first_stage_model.post_quant_conv.to(0)
-                # model.first_stage_model.decoder.to(0)
+
                 x_samples_ddim = model.decode_first_stage(samples_cfg)
                 result = torch.clamp(x_samples_ddim, min=-1, max=1)
-                # x_inter = torch.clamp(model.decode_first_stage(intermediates['x_inter'][-2]), min=-1, max=1)
 
                 os.makedirs('res', exist_ok=True)
                 save_image((result + 1) / 2, f'res/{i}.png')
                 save_image((masked_image + 1) / 2, f'res/{i}_m.png')
 
+                for j, x in enumerate(reversed(intermediates['x_inter'])):
+                    x = model.decode_first_stage(x)
+                    x = torch.clamp(x, min=-1, max=1)
+                    save_image((x + 1) / 2, f'res/{i}{j}_inter.png')
+
+                # x_inter = model.decode_first_stage(intermediates['x_inter'][-2])
+                # x_inter = torch.clamp(x_inter, min=-1, max=1)
                 # save_image((x_inter + 1) / 2, f'res/{i}_inter.png')
-                
-                # attack_model = attack_model_dict[attack_model_name]
                 feature1 = attack_model(resize(result)).reshape(B, -1)
                 feature2 = attack_model(resize(tgt_image)).reshape(B, -1)
                 
                 score = F.cosine_similarity(feature1, feature2)
                 print(score)
-                cos_sim_scores_dict[attack_model_name] += score.tolist()
 
-                
-                # feature3 = attack_model(resize(x_inter)).reshape(B, -1)
-                # score = F.cosine_similarity(feature3, feature2)
-                # print(score)
+                exit(0)
+                cos_sim_scores_dict[attack_model_name] += score.tolist()
 
     
     asr_calculation(cos_sim_scores_dict)
@@ -218,7 +220,6 @@ th_dict = {'IR152':(0.094632, 0.166788, 0.227922), 'IRSE50':(0.144840, 0.241045,
            'FaceNet':(0.256587, 0.409131, 0.591191), 'MobileFace':(0.183635, 0.301611, 0.380878)}
 
 def asr_calculation(cos_sim_scores_dict):
-    # Iterate each image pair's simi-score from "simi_scores_dict" and compute the attacking success rate
     for key, values in cos_sim_scores_dict.items():
         th01, th001, th0001 = th_dict[key]
         total = len(values)

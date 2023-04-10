@@ -82,7 +82,7 @@ def main(args):
     transform = transforms.Compose([transforms.Resize((512, 512)),
                                     transforms.ToTensor(),
                                     transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])])
-    dataset = base_dataset(path='./celeba-hq-sample/src', transform=transform)
+    dataset = base_dataset(path='./celeba-hq-sample', transform=transform)
     dataset = Subset(dataset, [x for x in range(50)])
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
     

@@ -8,7 +8,6 @@ from fr_model import IRSE_50, MobileFaceNet, IR_152, InceptionResnetV1
 from dataset import base_dataset
 from torchvision import transforms
 import torch.nn.functional as F
-from torch.utils.data import Subset
 from tqdm import tqdm
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
@@ -47,36 +46,40 @@ def setup_seed(seed):
 @torch.no_grad()
 def main():
     seed = 0
-    batch_size = 2
-    num_workers = 0
+    batch_size = 128
+    num_workers = 8
     
     setup_seed(seed)
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     
-    transform = transforms.Compose([transforms.Resize((512, 512)),
+    transform = transforms.Compose([transforms.Resize((160, 160)),
                                     transforms.ToTensor(),
                                     transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])])
-    dataset = base_dataset(path='./data', transform=transform)
-    # dataset = Subset(dataset, [x for x in range(50)])
+    dataset = base_dataset(dir='./ffhq_sample', transform=transform)
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
-    attack_model_names = ['IR152']
+    attack_model_names = ['IR152', 'IRSE50', 'FaceNet', 'MobileFace']
     attack_model_dict = {'IR152': get_model('IR152'), 'IRSE50': get_model('IRSE50'), 
                          'FaceNet': get_model('FaceNet'), 'MobileFace': get_model('MobileFace')}
-    # attack_model_resize_dict = {'IR152': 112, 'IRSE50': 112, 'FaceNet': 160, 'MobileFace': 112}
-    # cos_sim_scores_dict = {'IR152': [], 'IRSE50': [], 'FaceNet': [], 'MobileFace': []}
-    cos_sim_scores_dict = {'IR152': []}
+    cos_sim_scores_dict = {'IR152': [], 'IRSE50': [], 'FaceNet': [], 'MobileFace': []}
+    # cos_sim_scores_dict = {'IR152': []}
     
     for attack_model_name in attack_model_names:
         attack_model = attack_model_dict[attack_model_name]
-        resize = nn.AdaptiveAvgPool2d((112, 112)) if attack_model_name != 'FaceNet' else nn.AdaptiveAvgPool2d((160, 160))
+        # resize = nn.AdaptiveAvgPool2d((112, 112)) if attack_model_name != 'FaceNet' else nn.AdaptiveAvgPool2d((160, 160))
+        resize = (112, 112) if attack_model_name != 'FaceNet' else None
+        
         for i, (image, tgt_image) in enumerate(tqdm(dataloader)):
             tgt_image = tgt_image.to(device)
             image = image.to(device)
             B = image.shape[0]
             
-            feature1 = attack_model(resize(image)).reshape(B, -1)
-            feature2 = attack_model(resize(tgt_image)).reshape(B, -1)
+            if resize is not None:
+                image = F.interpolate(image, resize, mode='bilinear', align_corners=True)
+                tgt_image = F.interpolate(tgt_image, resize, mode='bilinear', align_corners=True)
+
+            feature1 = attack_model(image).reshape(B, -1)
+            feature2 = attack_model(tgt_image).reshape(B, -1)
                 
             score = F.cosine_similarity(feature1, feature2)
             cos_sim_scores_dict[attack_model_name] += score.tolist()

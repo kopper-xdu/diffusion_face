@@ -26,7 +26,7 @@ class FGSM(Attack):
         >>> adv_images = attack(images, labels)
 
     """
-    def __init__(self, model, eps=8/255):
+    def __init__(self, model, eps=16/255):
         super().__init__(model)
         self.eps = eps
         
@@ -45,12 +45,16 @@ class FGSM(Attack):
         loss = 0
         for name, model in self.model.items():
             model.eval()
-            resize = nn.AdaptiveAvgPool2d((112, 112)) if name != 'FaceNet' else nn.AdaptiveAvgPool2d((160, 160))
+            resize = (112, 112) if name != 'FaceNet' else None
+            
+            if resize is not None:
+                images = F.interpolate(images, resize, mode='bilinear', align_corners=True)
+                tgt_images = F.interpolate(tgt_images, resize, mode='bilinear', align_corners=True)
 
-            fea1 = model(resize(images * 2 - 1)).reshape(B, -1)
+            fea1 = model(images * 2 - 1).reshape(B, -1)
             
             if tgt_images is not None:
-                fea2 = model(resize(tgt_images * 2 - 1)).reshape(B, -1)
+                fea2 = model(tgt_images * 2 - 1).reshape(B, -1)
                 loss += F.cosine_similarity(fea1, fea2).sum() / B
             else:
                 loss += -F.cosine_similarity(fea1, fea1.clone().detach()).sum() / B

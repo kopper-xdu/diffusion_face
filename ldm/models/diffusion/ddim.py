@@ -246,7 +246,6 @@ class DDIMSampler(object):
             raise NotImplementedError()
         
         # classifier guidance
-        # print(guidance_dict.keys())
         x_target = kwargs['x_target']
         classifier = kwargs['classifier']
         classifier_scale = kwargs['classifier_scale']

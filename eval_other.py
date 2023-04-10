@@ -50,7 +50,7 @@ def setup_seed(seed):
 
 def main(args):
     seed = 0
-    batch_size = 32
+    batch_size = 16
     num_workers = 8
     
     setup_seed(seed)
@@ -59,27 +59,24 @@ def main(args):
     transform = transforms.Compose([transforms.Resize((160, 160)),
                                     transforms.ToTensor()])
     
-    dataset = base_dataset(path='./celeba-hq-sample/src', transform=transform)
-    # dataset = base_dataset(path='data', transform=transform)
-    # dataset = Subset(dataset, [x for x in range(50)])
+    dataset = base_dataset(dir='ffhq_sample', transform=transform)
     
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
 
     attack_model_names = ['IR152', 'IRSE50', 'FaceNet', 'MobileFace']
-    # attack_model_names = ['IR152']
     attack_model_dict = {'IR152': get_model('IR152'), 'IRSE50': get_model('IRSE50'),
                          'FaceNet': get_model('FaceNet'), 'MobileFace': get_model('MobileFace')}
     cos_sim_scores_dict = {'IR152': [], 'IRSE50': [], 'FaceNet': [], 'MobileFace': []}
-    # cos_sim_scores_dict = {'IR152': []}
     
     for attack_model_name in attack_model_names:
-        resize = nn.AdaptiveAvgPool2d((112, 112)) if attack_model_name != 'FaceNet' else nn.AdaptiveAvgPool2d((160, 160))
+        # resize = nn.AdaptiveAvgPool2d((112, 112)) if attack_model_name != 'FaceNet' else nn.AdaptiveAvgPool2d((160, 160))
+        resize = (112, 112) if attack_model_name != 'FaceNet' else None
         proxy_model = {k: v for k, v in attack_model_dict.items() if k != attack_model_name}
         attack_model = attack_model_dict[attack_model_name]
         
         for i, (images, tgt_images) in enumerate(tqdm(dataloader)):
-            tgt_images = resize(tgt_images.to(device))
-            images = resize(images.to(device))
+            tgt_images = tgt_images.to(device)
+            images = images.to(device)
             B = images.shape[0]
             
             # getattr(attacks, args.attack)
@@ -90,8 +87,13 @@ def main(args):
             save_image(adv_images, f'adv_images/adv{i}.png')
             adv_images = adv_images * 2 - 1
             tgt_images = tgt_images * 2 - 1
-            feature1 = attack_model(resize(adv_images)).reshape(B, -1)
-            feature2 = attack_model(resize(tgt_images)).reshape(B, -1)
+            
+            if resize is not None:
+                adv_images = F.interpolate(adv_images, resize, mode='bilinear', align_corners=True)
+                tgt_images = F.interpolate(tgt_images, resize, mode='bilinear', align_corners=True)
+                
+            feature1 = attack_model(adv_images).reshape(B, -1)
+            feature2 = attack_model(tgt_images).reshape(B, -1)
             score = F.cosine_similarity(feature1, feature2)
                 
             # print(score)

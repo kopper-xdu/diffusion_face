@@ -1,0 +1,1 @@
+python -m pytorch_fid res/ celeba-hq_sample/src

@@ -2,8 +2,10 @@ __pycache__/
 data/
 pretrained_model/
 Adv-Makeup/
+AMT-GAN
 adversarial-attacks-pytorch/
 celeba-hq_sample/
+1/
 *.pth
 *.png
 *.jpg
